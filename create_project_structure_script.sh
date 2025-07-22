@@ -2,19 +2,20 @@
 #!/bin/bash
 
 # Script to create a folder structure for a spec-driven agent-based development project
-# in the user's home directory and initialize it as a GitHub-ready repository.
-# Usage: ./create_project_structure.sh <project_name> <github_repo_url>
+# in the user's home directory and initialize it with markdown files from a GitHub repository.
+# Usage: ./create_project_structure.sh <local_project_name>
+# Note: To export environment variables to your current shell session, source this script: . ./create_project_structure.sh <local_project_name>
+# Assumes SSH authentication is set up for GitHub (git@ scheme).
 
-# Check if project name and repo URL are provided
-if [ -z "$1" ] || [ -z "$2" ]; then
-    echo "Error: Please provide both project name and GitHub repo URL"
-    echo "Usage: $0 <project_name> <github_repo_url>"
+# Check if local project name is provided
+if [ -z "$1" ]; then
+    echo "Error: Please provide the local project name"
+    echo "Usage: $0 <local_project_name>"
     exit 1
 fi
 
-PROJECT_NAME="$1"
-REPO_URL="$2"
-ROOT_DIR="$HOME/$PROJECT_NAME"
+LOCAL_PROJECT_NAME="$1"
+ROOT_DIR="$HOME/$LOCAL_PROJECT_NAME"
 
 # Ensure HOME is defined and not root
 if [ -z "$HOME" ] || [ "$HOME" = "/" ]; then
@@ -22,50 +23,44 @@ if [ -z "$HOME" ] || [ "$HOME" = "/" ]; then
     exit 1
 fi
 
-# Extract OWNER and REPO from URL
-OWNER=$(echo "$REPO_URL" | sed -E 's|https://github.com/([^/]+)/([^/]+).*|\1|')
-REPO=$(echo "$REPO_URL" | sed -E 's|https://github.com/([^/]+)/([^/]+).*|\2|')
+# Default GitHub base URL for SSH
+GITHUB_BASE_URL="git@github.com"
 
-if [ -z "$OWNER" ] || [ -z "$REPO" ]; then
-    echo "Error: Invalid GitHub repo URL format."
+# Prompt for repo owner and repo name
+read -p "Enter GitHub repo owner (username or org): " REPO_OWNER
+if [ -z "$REPO_OWNER" ]; then
+    echo "Error: Repo owner is required."
     exit 1
 fi
 
-# Prompt for GitHub Personal Access Token
-read -s -p "Enter your GitHub Personal Access Token (with repo scope): " TOKEN
-echo ""
-
-if [ -z "$TOKEN" ]; then
-    echo "Error: Token is required."
+read -p "Enter GitHub repo name (project name for repo): " REPO_NAME
+if [ -z "$REPO_NAME" ]; then
+    echo "Error: Repo name is required."
     exit 1
 fi
 
-# Check if repo exists, create if not
-RESPONSE_CODE=$(curl -s -H "Authorization: token $TOKEN" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/$OWNER/$REPO" -w "%{http_code}" -o /dev/null)
+# Construct full repo URL using git@ scheme
+REPO_URL="$GITHUB_BASE_URL:$REPO_OWNER/$REPO_NAME.git"
 
-if [ "$RESPONSE_CODE" = "404" ]; then
-    echo "Repository does not exist. Creating new repository..."
-    CREATE_RESPONSE=$(curl -s -H "Authorization: token $TOKEN" -H "Accept: application/vnd.github.v3+json" -d "{\"name\":\"$REPO\", \"auto_init\":true}" "https://api.github.com/user/repos")
-    if [[ $CREATE_RESPONSE == *"\"message\": \"Bad credentials\""* ]]; then
-        echo "Error: Invalid token or insufficient permissions."
-        exit 1
-    elif [[ $CREATE_RESPONSE == *"\"name\": \"$REPO\""* ]]; then
-        echo "Repository created successfully."
-    else
-        echo "Error creating repository: $CREATE_RESPONSE"
-        exit 1
-    fi
-elif [ "$RESPONSE_CODE" != "200" ]; then
-    echo "Error checking repository (HTTP $RESPONSE_CODE). Check token and URL."
-    exit 1
-fi
+# Export environment variables
+export REPO_OWNER="$REPO_OWNER"
+export REPO_NAME="$REPO_NAME"
+export REPO_URL="$REPO_URL"
+
+echo "Environment variables exported:"
+echo "REPO_OWNER=$REPO_OWNER"
+echo "REPO_NAME=$REPO_NAME"
+echo "REPO_URL=$REPO_URL"
 
 # Create root directory in user's home
 mkdir -p "$ROOT_DIR"
 
-# Clone the GitHub repository with token for authentication
-CLONE_URL="https://${TOKEN}@github.com/${OWNER}/${REPO}.git"
-git clone "$CLONE_URL" "$ROOT_DIR/repo_temp"
+# Clone the GitHub repository using SSH
+git clone "$REPO_URL" "$ROOT_DIR/repo_temp"
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to clone repository. Check SSH authentication and ensure the repository exists."
+    exit 1
+fi
 
 # Copy markdown files to docs directory
 mkdir -p "$ROOT_DIR/docs"
@@ -103,7 +98,7 @@ mkdir -p "$ROOT_DIR/tests"
 
 # Create README in root with project overview
 cat << EOF > "$ROOT_DIR/README.md"
-# $PROJECT_NAME
+# $LOCAL_PROJECT_NAME
 
 This project follows a spec-driven development (SDD) approach for agent-based development (ABD) with eval data engineering. The structure is organized to support PRDs, tasks, architecture, eval datasets, and iterative refinement. Markdown templates are sourced from the provided GitHub repository.
 
@@ -122,6 +117,6 @@ EOF
 # Set executable permissions for the script (self-referential)
 chmod +x "$0"
 
-echo "Project structure for '$PROJECT_NAME' created successfully in $HOME!"
+echo "Project structure for '$LOCAL_PROJECT_NAME' created successfully in $HOME!"
 echo "Navigate to '$ROOT_DIR' to view the folder structure."
 echo "Markdown files from '$REPO_URL' have been copied to '$ROOT_DIR/docs/'."
